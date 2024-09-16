@@ -1,1 +1,3 @@
 # AlzDetector
+
+Destroy everything rn

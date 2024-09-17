@@ -1,0 +1,86 @@
+{
+	"name": "model",
+	"properties": {
+		"nbformat": 4,
+		"nbformat_minor": 2,
+		"bigDataPool": {
+			"referenceName": "alzspark01",
+			"type": "BigDataPoolReference"
+		},
+		"sessionProperties": {
+			"driverMemory": "28g",
+			"driverCores": 4,
+			"executorMemory": "28g",
+			"executorCores": 4,
+			"numExecutors": 2,
+			"conf": {
+				"spark.dynamicAllocation.enabled": "false",
+				"spark.dynamicAllocation.minExecutors": "2",
+				"spark.dynamicAllocation.maxExecutors": "2",
+				"spark.autotune.trackingId": "9dd55fd5-ca05-4d3c-8361-9f5d4684cae8"
+			}
+		},
+		"metadata": {
+			"saveOutput": true,
+			"enableDebugMode": false,
+			"kernelspec": {
+				"name": "synapse_pyspark",
+				"display_name": "Synapse PySpark"
+			},
+			"language_info": {
+				"name": "python"
+			},
+			"a365ComputeOptions": {
+				"id": "/subscriptions/90cc145c-b084-4cc1-8094-58c0d8de0332/resourceGroups/alzdetector/providers/Microsoft.Synapse/workspaces/alzheimer/bigDataPools/alzspark01",
+				"name": "alzspark01",
+				"type": "Spark",
+				"endpoint": "https://alzheimer.dev.azuresynapse.net/livyApi/versions/2019-11-01-preview/sparkPools/alzspark01",
+				"auth": {
+					"type": "AAD",
+					"authResource": "https://dev.azuresynapse.net"
+				},
+				"sparkVersion": "3.4",
+				"nodeCount": 10,
+				"cores": 4,
+				"memory": 28,
+				"automaticScaleJobs": false
+			},
+			"sessionKeepAliveTimeout": 30
+		},
+		"cells": [
+			{
+				"cell_type": "code",
+				"source": [
+					"from pyspark.sql import SparkSession\r\n",
+					"\r\n",
+					"STORAGE_ACCOUNT = \"alzdetectorstorage\"\r\n",
+					"CONTAINER_NAME = \"alzheimer-anly\"\r\n",
+					"STORAGE_KEY = \"\"\r\n",
+					"\r\n",
+					"spark = SparkSession.builder.getOrCreate()\r\n",
+					"spark.conf.set(f\"fs.azure.account.key.{STORAGE_ACCOUNT}.blob.core.windows.net\", STORAGE_KEY)"
+				],
+				"execution_count": 7
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"train_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/data/train.csv\"\r\n",
+					"train = spark.read.csv(train_path)"
+				],
+				"execution_count": 8
+			}
+		]
+	}
+}

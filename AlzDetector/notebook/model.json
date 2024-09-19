@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "9dd55fd5-ca05-4d3c-8361-9f5d4684cae8"
+				"spark.autotune.trackingId": "8af5dff4-80c2-4ffb-b210-a8f5f1c88b40"
 			}
 		},
 		"metadata": {
@@ -60,7 +60,35 @@
 					"spark = SparkSession.builder.getOrCreate()\r\n",
 					"spark.conf.set(f\"fs.azure.account.key.{STORAGE_ACCOUNT}.blob.core.windows.net\", STORAGE_KEY)"
 				],
-				"execution_count": 7
+				"execution_count": 1
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"from pyspark.sql.types import StructType, StructField, StringType, DoubleType\r\n",
+					"\r\n",
+					"TRAIN_SIZE = 8233\r\n",
+					"TEST_SIZE = 2063\r\n",
+					"\r\n",
+					"cpg_site_field = [StructField(\"cpg_site\", StringType(), False)]\r\n",
+					"train_samples = [StructField(f\"sample_{i:05}\", DoubleType(), True) for i in range(1, TRAIN_SIZE + 1)]\r\n",
+					"test_samples = [StructField(f\"sample_{i:05}\", DoubleType(), True) for i in range(TRAIN_SIZE + 1, TRAIN_SIZE + TEST_SIZE + 1)]\r\n",
+					"\r\n",
+					"train_schema = StructType(cpg_site_field + train_samples)\r\n",
+					"test_schema = StructType(cpg_site_field + test_samples)"
+				],
+				"execution_count": 23
 			},
 			{
 				"cell_type": "code",
@@ -77,9 +105,31 @@
 				},
 				"source": [
 					"train_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/data/train.csv\"\r\n",
-					"train = spark.read.csv(train_path)"
+					"train = spark.read.csv(train_path, schema=train_schema)\r\n",
+					"\r\n",
+					"test_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/data/test.csv\"\r\n",
+					"test = spark.read.csv(test_path, schema=test_schema)"
 				],
-				"execution_count": 8
+				"execution_count": 24
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"print(f\"Train set starts with {train.columns[1]}, ends with {train.columns[-1]}.\")\r\n",
+					"print(f\"Test set starts with {test.columns[1]}, ends with {test.columns[-1]}.\")"
+				],
+				"execution_count": 25
 			}
 		]
 	}

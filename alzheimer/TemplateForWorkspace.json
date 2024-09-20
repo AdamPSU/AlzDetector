@@ -104,7 +104,7 @@
 						"spark.dynamicAllocation.enabled": "false",
 						"spark.dynamicAllocation.minExecutors": "2",
 						"spark.dynamicAllocation.maxExecutors": "2",
-						"spark.autotune.trackingId": "b693c158-6b98-471f-8086-acc48d7ad3e3"
+						"spark.autotune.trackingId": "925068f5-bb63-4299-9866-eb0edead9796"
 					}
 				},
 				"metadata": {
@@ -149,7 +149,7 @@
 							"spark.conf.set(f\"fs.azure.account.key.{STORAGE_ACCOUNT}.blob.core.windows.net\", STORAGE_KEY)"
 						],
 						"outputs": [],
-						"execution_count": 1
+						"execution_count": 4
 					},
 					{
 						"cell_type": "code",
@@ -165,20 +165,34 @@
 							}
 						},
 						"source": [
-							"from pyspark.sql.types import StructType, StructField, StringType, DoubleType\r\n",
+							"from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType\r\n",
 							"\r\n",
-							"TRAIN_SIZE = 8233\r\n",
-							"TEST_SIZE = 2063\r\n",
+							"TRAIN_COL_SIZE = 8233\r\n",
+							"TEST_COL_SIZE = 2063\r\n",
 							"\r\n",
 							"cpg_site_field = [StructField(\"cpg_site\", StringType(), False)]\r\n",
-							"train_samples = [StructField(f\"sample_{i:05}\", DoubleType(), True) for i in range(1, TRAIN_SIZE + 1)]\r\n",
-							"test_samples = [StructField(f\"sample_{i:05}\", DoubleType(), True) for i in range(TRAIN_SIZE + 1, TRAIN_SIZE + TEST_SIZE + 1)]\r\n",
+							"train_samples = [StructField(f\"{i:05}\", DoubleType(), True) for i in range(1, TRAIN_COL_SIZE + 1)]\r\n",
+							"test_samples = [StructField(f\"{i:05}\", DoubleType(), True) for i in range(TRAIN_COL_SIZE + 1, TRAIN_COL_SIZE + TEST_COL_SIZE + 1)]\r\n",
 							"\r\n",
 							"train_schema = StructType(cpg_site_field + train_samples)\r\n",
-							"test_schema = StructType(cpg_site_field + test_samples)"
+							"test_schema = StructType(cpg_site_field + test_samples)\r\n",
+							"\r\n",
+							"train_map_info = [StructField(\"row_num\", StringType(), False),\r\n",
+							"                  StructField(\"sample_id\", StringType(), False),\r\n",
+							"                  StructField(\"age\", IntegerType(), False), \r\n",
+							"                  StructField(\"gender\", StringType(), False),\r\n",
+							"                  StructField(\"sample_type\", StringType(), False),\r\n",
+							"                  StructField(\"disease\", StringType(), False)]\r\n",
+							"                  \r\n",
+							"test_map_info = [StructField(\"row_num\", IntegerType(), False),\r\n",
+							"                 StructField(\"sample_id\", StringType(), False),\r\n",
+							"                 StructField(\"gender\", StringType(), False)]\r\n",
+							"\r\n",
+							"train_map_schema = StructType(train_map_info)\r\n",
+							"test_map_schema = StructType(test_map_info)"
 						],
 						"outputs": [],
-						"execution_count": 23
+						"execution_count": 96
 					},
 					{
 						"cell_type": "code",
@@ -195,13 +209,19 @@
 						},
 						"source": [
 							"train_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/data/train.csv\"\r\n",
-							"train = spark.read.csv(train_path, schema=train_schema)\r\n",
+							"train = spark.read.csv(train_path, schema=train_schema, header=True)\r\n",
+							"\r\n",
+							"train_map_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/maps/trainmap.csv\"\r\n",
+							"train_map = spark.read.csv(train_map_path, schema=train_map_schema, header=True)\r\n",
 							"\r\n",
 							"test_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/data/test.csv\"\r\n",
-							"test = spark.read.csv(test_path, schema=test_schema)"
+							"test = spark.read.csv(train_map_path, schema=train_map_schema, header=True)\r\n",
+							"\r\n",
+							"test_map_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/maps/testmap.csv\"\r\n",
+							"test_map = spark.read.csv(test_map_path, schema=test_map_schema, header=True)"
 						],
 						"outputs": [],
-						"execution_count": 24
+						"execution_count": 110
 					},
 					{
 						"cell_type": "code",
@@ -217,11 +237,42 @@
 							}
 						},
 						"source": [
-							"print(f\"Train set starts with {train.columns[1]}, ends with {train.columns[-1]}.\")\r\n",
-							"print(f\"Test set starts with {test.columns[1]}, ends with {test.columns[-1]}.\")"
+							"from pyspark.sql.functions import col, format_string, monotonically_increasing_id\r\n",
+							"\r\n",
+							"train_map = train_map.withColumn(\"sample_id\", format_string(\"%05d\", monotonically_increasing_id()))\r\n",
+							"train_map = train_map.drop(\"row_num\")\r\n",
+							"\r\n",
+							"test_map = test_map.withColumn(\"sample_id\", format_string(\"%05d\", TRAIN_COL_SIZE + 1 + monotonically_increasing_id()))\r\n",
+							"test_map = test_map.drop(\"row_num\")"
 						],
 						"outputs": [],
-						"execution_count": 25
+						"execution_count": 111
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"from pyspark.ml.feature import Imputer \r\n",
+							"\r\n",
+							"numeric_cols = train.columns[1:]\r\n",
+							"\r\n",
+							"imputer = Imputer(strategy='mean', inputCols=numeric_cols, outputCols=numeric_cols)\r\n",
+							"model = imputer.fit(train)\r\n",
+							"\r\n",
+							"train = model.transform(train)"
+						],
+						"outputs": [],
+						"execution_count": 61
 					}
 				]
 			},

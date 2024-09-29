@@ -104,7 +104,7 @@
 						"spark.dynamicAllocation.enabled": "false",
 						"spark.dynamicAllocation.minExecutors": "2",
 						"spark.dynamicAllocation.maxExecutors": "2",
-						"spark.autotune.trackingId": "f7a3f8d5-e6bb-4ae2-aa1c-7f9de84e1757"
+						"spark.autotune.trackingId": "73e864fe-084f-4bba-8c01-8248b07ed542"
 					}
 				},
 				"metadata": {
@@ -143,13 +143,13 @@
 							"\r\n",
 							"STORAGE_ACCOUNT = \"alzdetectorstorage\"\r\n",
 							"CONTAINER_NAME = \"alzheimer-anly\"\r\n",
-							"STORAGE_KEY = \"\"\r\n",
+							"STORAGE_KEY \"\r\n",
 							"\r\n",
 							"spark = SparkSession.builder.getOrCreate()\r\n",
 							"spark.conf.set(f\"fs.azure.account.key.{STORAGE_ACCOUNT}.blob.core.windows.net\", STORAGE_KEY)"
 						],
 						"outputs": [],
-						"execution_count": 2
+						"execution_count": 1
 					},
 					{
 						"cell_type": "markdown",
@@ -180,14 +180,14 @@
 						"source": [
 							"from pyspark.sql.types import StructType, StructField, StringType, DoubleType, IntegerType\r\n",
 							"\r\n",
-							"TRAIN_COL_SIZE = 8233 \r\n",
-							"TEST_COL_SIZE = 2063\r\n",
+							"TRAIN_SAMPLE_SIZE = 8233 \r\n",
+							"TEST_SAMPLE_SIZE = 2063\r\n",
 							"\r\n",
 							"cpg_site_field = [StructField(\"cpg_site\", StringType(), False)] # cpg_site is the only non-double column\r\n",
 							"\r\n",
 							"# Name all columns for train and test set\r\n",
-							"train_samples = [StructField(f\"{i:05}\", DoubleType(), True) for i in range(1, TRAIN_COL_SIZE + 1)]\r\n",
-							"test_samples = [StructField(f\"{i:05}\", DoubleType(), True) for i in range(TRAIN_COL_SIZE + 1, TRAIN_COL_SIZE + TEST_COL_SIZE + 1)]\r\n",
+							"train_samples = [StructField(f\"{i:05}\", DoubleType(), True) for i in range(1, TRAIN_SAMPLE_SIZE + 1)]\r\n",
+							"test_samples = [StructField(f\"{i:05}\", DoubleType(), True) for i in range(TRAIN_SAMPLE_SIZE + 1, TRAIN_SAMPLE_SIZE + TEST_SAMPLE_SIZE + 1)]\r\n",
 							"\r\n",
 							"train_schema = StructType(cpg_site_field + train_samples)\r\n",
 							"test_schema = StructType(cpg_site_field + test_samples)\r\n",
@@ -207,7 +207,7 @@
 							"test_map_schema = StructType(test_map_info)"
 						],
 						"outputs": [],
-						"execution_count": 3
+						"execution_count": 2
 					},
 					{
 						"cell_type": "code",
@@ -236,7 +236,7 @@
 							"test_map = spark.read.csv(test_map_path, schema=test_map_schema, header=True)"
 						],
 						"outputs": [],
-						"execution_count": 17
+						"execution_count": 3
 					},
 					{
 						"cell_type": "markdown",
@@ -290,7 +290,27 @@
 							"train_map = train_map.withColumn(\"has_alzheimer\", alzheimer_udf(train_map['disease']))"
 						],
 						"outputs": [],
-						"execution_count": 35
+						"execution_count": 4
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"train_subset = train.select(train.columns[:10]).limit(10)\r\n",
+							"test_subset = test.select(test.columns[:10]).limit(10)"
+						],
+						"outputs": [],
+						"execution_count": 11
 					},
 					{
 						"cell_type": "markdown",
@@ -302,7 +322,7 @@
 							}
 						},
 						"source": [
-							"Let's drop the `cpg_site` feature and store it as a variable instead, as it's practically just another ID as far as DNA methylation goes—useless for predictions, but useful for the final stage."
+							"To begin preprocessing, we must transpose the dataframes. Unpivoting takes our dataframe, which is originally of shape (485512, SAMPLES), and shrinks it down to a three-column spread of the id, variable column, and value column. Of course, this is a temporary measure. This allows us to create the `sample_id` column, which we will then use to re-pivot our data back into wide format--only now, our columns are the `cpg_site` and the IDs are those found in `sample_id`. If our previous shape was (485512, SAMPLES), it is now (SAMPLES, 485512)."
 						]
 					},
 					{
@@ -319,33 +339,24 @@
 							}
 						},
 						"source": [
-							"cpg_site = train.select(\"cpg_site\")\r\n",
+							"NUM_CPG_SITES = 485_512\r\n",
 							"\r\n",
-							"train = train.drop(\"cpg_site\")\r\n",
-							"test = test.drop(\"cpg_site\")"
+							"spark.conf.set(\"spark.sql.pivotMaxValues\", NUM_CPG_SITES)\r\n",
+							"\r\n",
+							"unpivot_params = {\r\n",
+							"    'ids': 'cpg_site',\r\n",
+							"    'values': None,\r\n",
+							"    'variableColumnName': 'sample_id',\r\n",
+							"    'valueColumnName': 'methyl_data'\r\n",
+							"}\r\n",
+							"\r\n",
+							"train = (train.unpivot(**unpivot_params)\r\n",
+							"              .groupby('sample_id')\r\n",
+							"              .pivot('cpg_site')\r\n",
+							"              .agg({'methyl_data': 'last'}))"
 						],
 						"outputs": [],
-						"execution_count": 30
-					},
-					{
-						"cell_type": "code",
-						"metadata": {
-							"jupyter": {
-								"source_hidden": false,
-								"outputs_hidden": false
-							},
-							"nteract": {
-								"transient": {
-									"deleting": false
-								}
-							}
-						},
-						"source": [
-							"train_subset = train.select(train.columns[:300])\r\n",
-							"test_subset = test.select(test.columns[:300])"
-						],
-						"outputs": [],
-						"execution_count": 19
+						"execution_count": 23
 					},
 					{
 						"cell_type": "code",
@@ -363,19 +374,38 @@
 						"source": [
 							"from pyspark.ml.feature import Imputer \r\n",
 							"\r\n",
-							"train_numeric_cols = train_subset.columns\r\n",
+							"train_numeric_cols = train.columns[1:-3000] # the first column is the ID column\r\n",
 							"train_imputer = Imputer(strategy='mean', inputCols=train_numeric_cols, outputCols=train_numeric_cols)\r\n",
-							"train_model = train_imputer.fit(train_subset)\r\n",
+							"train_model = train_imputer.fit(train)\r\n",
 							"\r\n",
-							"test_numeric_cols = test_subset.columns\r\n",
-							"test_imputer = Imputer(strategy='mean', inputCols=test_numeric_cols, outputCols=test_numeric_cols)\r\n",
-							"test_model  = test_imputer.fit(test_subset)\r\n",
+							"# test_numeric_cols = test_subset.columns\r\n",
+							"# test_imputer = Imputer(strategy='mean', inputCols=test_numeric_cols, outputCols=test_numeric_cols)\r\n",
+							"# test_model  = test_imputer.fit(test_subset)\r\n",
 							"\r\n",
-							"train_subset = train_model.transform(train_subset)\r\n",
-							"test_subset = test_model.transform(test_subset)"
+							"train_subset = train_model.transform(train)\r\n",
+							"# test_subset = test_model.transform(test_subset)"
 						],
 						"outputs": [],
-						"execution_count": 24
+						"execution_count": 34
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							""
+						],
+						"outputs": [],
+						"execution_count": null
 					}
 				]
 			},
@@ -411,9 +441,25 @@
 			"type": "Microsoft.Synapse/workspaces/bigDataPools",
 			"apiVersion": "2019-06-01-preview",
 			"properties": {
+				"autoPause": {
+					"enabled": true,
+					"delayInMinutes": 15
+				},
+				"autoScale": {
+					"enabled": true,
+					"maxNodeCount": 5,
+					"minNodeCount": 3
+				},
+				"nodeCount": 10,
+				"nodeSize": "Medium",
+				"nodeSizeFamily": "MemoryOptimized",
+				"sparkVersion": "3.4",
+				"isComputeIsolationEnabled": false,
+				"sessionLevelPackagesEnabled": false,
 				"annotations": []
 			},
-			"dependsOn": []
+			"dependsOn": [],
+			"location": "eastus2"
 		}
 	]
 }

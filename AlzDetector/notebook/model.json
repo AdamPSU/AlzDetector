@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "c3e48ce6-b8a4-4c09-8445-7d7dad2689b4"
+				"spark.autotune.trackingId": "00f27cfe-91ec-439a-ba80-7e377215d4e8"
 			}
 		},
 		"metadata": {
@@ -177,7 +177,7 @@
 				},
 				"source": [
 					"from pyspark.sql.functions import format_string, monotonically_increasing_id, udf\r\n",
-					"from pyspark.sql.types import BooleanType\r\n",
+					"from pyspark.sql.types import IntegerType\r\n",
 					"\r\n",
 					"# Unneeded feature\r\n",
 					"train_map = train_map.drop(\"row_num\")\r\n",
@@ -194,10 +194,10 @@
 					"    \"\"\"\r\n",
 					"\r\n",
 					"    if disease == \"Alzheimer's disease\":\r\n",
-					"        return True\r\n",
-					"    return False \r\n",
+					"        return 1\r\n",
+					"    return 0 \r\n",
 					"\r\n",
-					"alzheimer_udf = udf(has_alzheimer, BooleanType()) # Must be done for pyspark to recognize the function\r\n",
+					"alzheimer_udf = udf(has_alzheimer, IntegerType()) # Must be done for pyspark to recognize the function\r\n",
 					"train_map = train_map.withColumn(\"has_alzheimer\", alzheimer_udf(train_map['disease']))"
 				],
 				"execution_count": 4
@@ -216,10 +216,10 @@
 					}
 				},
 				"source": [
-					"train = train.select(train.columns[:100]).limit(5)\r\n",
-					"test = test.select(test.columns[:100]).limit(5)"
+					"train = train.select(train.columns[:2000]).limit(500)\r\n",
+					"test = test.select(test.columns[:2000]).limit(500)"
 				],
-				"execution_count": 11
+				"execution_count": 5
 			},
 			{
 				"cell_type": "markdown",
@@ -309,6 +309,72 @@
 					"imputer = Imputer(inputCols=test_numeric_cols, outputCols=test_numeric_cols)\r\n",
 					"model = imputer.fit(test_T)\r\n",
 					"test_imputed = model.transform(test_T)"
+				],
+				"execution_count": 7
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"from pyspark.ml.classification import LinearSVC\r\n",
+					"from pyspark.ml.feature import VectorAssembler\r\n",
+					"\r\n",
+					"X = train_imputed\r\n",
+					"y = train_map.select('sample_id', 'has_alzheimer')\r\n",
+					"train_data = X.join(y, on='sample_id', how='inner')\r\n",
+					"features = train_data.columns[1:-1]\r\n",
+					"\r\n",
+					"assembler = VectorAssembler(inputCols=features, outputCol=\"cpg_sites\")\r\n",
+					"train_data = assembler.transform(train_data)\r\n",
+					"\r\n",
+					"lsvc = LinearSVC(featuresCol=\"cpg_sites\", labelCol=\"has_alzheimer\", maxIter=10)\r\n",
+					"model = lsvc.fit(train_data)"
+				],
+				"execution_count": 8
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"y_pred = model.transform(train_data)"
+				],
+				"execution_count": 9
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"y_pred.show()"
 				],
 				"execution_count": 10
 			}

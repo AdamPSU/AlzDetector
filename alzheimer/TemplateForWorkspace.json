@@ -104,7 +104,7 @@
 						"spark.dynamicAllocation.enabled": "false",
 						"spark.dynamicAllocation.minExecutors": "2",
 						"spark.dynamicAllocation.maxExecutors": "2",
-						"spark.autotune.trackingId": "73e864fe-084f-4bba-8c01-8248b07ed542"
+						"spark.autotune.trackingId": "5cbf2717-ac1c-4b5c-baaf-c4ef4e6b92b5"
 					}
 				},
 				"metadata": {
@@ -139,11 +139,13 @@
 						"cell_type": "code",
 						"metadata": {},
 						"source": [
+							"# TODO: Join train and test for easier preprocessing\r\n",
+							"\r\n",
 							"from pyspark.sql import SparkSession\r\n",
 							"\r\n",
 							"STORAGE_ACCOUNT = \"alzdetectorstorage\"\r\n",
 							"CONTAINER_NAME = \"alzheimer-anly\"\r\n",
-							"STORAGE_KEY \"\r\n",
+							"STORAGE_KEY = \"\"\r\n",
 							"\r\n",
 							"spark = SparkSession.builder.getOrCreate()\r\n",
 							"spark.conf.set(f\"fs.azure.account.key.{STORAGE_ACCOUNT}.blob.core.windows.net\", STORAGE_KEY)"
@@ -266,7 +268,7 @@
 						},
 						"source": [
 							"from pyspark.sql.functions import format_string, monotonically_increasing_id, udf\r\n",
-							"from pyspark.sql.types import BooleanType\r\n",
+							"from pyspark.sql.types import IntegerType\r\n",
 							"\r\n",
 							"# Unneeded feature\r\n",
 							"train_map = train_map.drop(\"row_num\")\r\n",
@@ -274,7 +276,7 @@
 							"\r\n",
 							"# Reformat the sample_id to match the columns for our train and test data\r\n",
 							"train_map = train_map.withColumn(\"sample_id\", format_string(\"%05d\", monotonically_increasing_id()))\r\n",
-							"test_map = test_map.withColumn(\"sample_id\", format_string(\"%05d\", TRAIN_COL_SIZE + 1 + monotonically_increasing_id()))\r\n",
+							"test_map = test_map.withColumn(\"sample_id\", format_string(\"%05d\", TRAIN_SAMPLE_SIZE + 1 + monotonically_increasing_id()))\r\n",
 							"\r\n",
 							"def has_alzheimer(disease):\r\n",
 							"    \"\"\"\r\n",
@@ -283,10 +285,10 @@
 							"    \"\"\"\r\n",
 							"\r\n",
 							"    if disease == \"Alzheimer's disease\":\r\n",
-							"        return True\r\n",
-							"    return False \r\n",
+							"        return 1\r\n",
+							"    return 0 \r\n",
 							"\r\n",
-							"alzheimer_udf = udf(has_alzheimer, BooleanType()) # Must be done for pyspark to recognize the function\r\n",
+							"alzheimer_udf = udf(has_alzheimer, IntegerType()) # Must be done for pyspark to recognize the function\r\n",
 							"train_map = train_map.withColumn(\"has_alzheimer\", alzheimer_udf(train_map['disease']))"
 						],
 						"outputs": [],
@@ -306,11 +308,11 @@
 							}
 						},
 						"source": [
-							"train_subset = train.select(train.columns[:10]).limit(10)\r\n",
-							"test_subset = test.select(test.columns[:10]).limit(10)"
+							"train = train.select(train.columns[:2000]).limit(500)\r\n",
+							"test = test.select(test.columns[:2000]).limit(500)"
 						],
 						"outputs": [],
-						"execution_count": 11
+						"execution_count": 5
 					},
 					{
 						"cell_type": "markdown",
@@ -340,7 +342,6 @@
 						},
 						"source": [
 							"NUM_CPG_SITES = 485_512\r\n",
-							"\r\n",
 							"spark.conf.set(\"spark.sql.pivotMaxValues\", NUM_CPG_SITES)\r\n",
 							"\r\n",
 							"unpivot_params = {\r\n",
@@ -350,13 +351,31 @@
 							"    'valueColumnName': 'methyl_data'\r\n",
 							"}\r\n",
 							"\r\n",
-							"train = (train.unpivot(**unpivot_params)\r\n",
+							"train_T = (train.unpivot(**unpivot_params)\r\n",
+							"                .groupby('sample_id')\r\n",
+							"                .pivot('cpg_site')\r\n",
+							"                .agg({'methyl_data': 'last'}))\r\n",
+							"\r\n",
+							"test_T = (test.unpivot(**unpivot_params)\r\n",
 							"              .groupby('sample_id')\r\n",
 							"              .pivot('cpg_site')\r\n",
 							"              .agg({'methyl_data': 'last'}))"
 						],
 						"outputs": [],
-						"execution_count": 23
+						"execution_count": 6
+					},
+					{
+						"cell_type": "markdown",
+						"metadata": {
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"The transposition is complete, but there are a lot of missing values. A pretty common tactic is to impute them with the mean, and that's what we'll do. "
+						]
 					},
 					{
 						"cell_type": "code",
@@ -374,19 +393,19 @@
 						"source": [
 							"from pyspark.ml.feature import Imputer \r\n",
 							"\r\n",
-							"train_numeric_cols = train.columns[1:-3000] # the first column is the ID column\r\n",
-							"train_imputer = Imputer(strategy='mean', inputCols=train_numeric_cols, outputCols=train_numeric_cols)\r\n",
-							"train_model = train_imputer.fit(train)\r\n",
+							"train_numeric_cols = train_T.columns[1:] # the first column is the ID column\r\n",
+							"test_numeric_cols = test_T.columns[1:] # the first column is the ID column\r\n",
 							"\r\n",
-							"# test_numeric_cols = test_subset.columns\r\n",
-							"# test_imputer = Imputer(strategy='mean', inputCols=test_numeric_cols, outputCols=test_numeric_cols)\r\n",
-							"# test_model  = test_imputer.fit(test_subset)\r\n",
+							"imputer = Imputer(inputCols=train_numeric_cols, outputCols=train_numeric_cols)\r\n",
+							"model = imputer.fit(train_T)\r\n",
+							"train_imputed = model.transform(train_T)\r\n",
 							"\r\n",
-							"train_subset = train_model.transform(train)\r\n",
-							"# test_subset = test_model.transform(test_subset)"
+							"imputer = Imputer(inputCols=test_numeric_cols, outputCols=test_numeric_cols)\r\n",
+							"model = imputer.fit(test_T)\r\n",
+							"test_imputed = model.transform(test_T)"
 						],
 						"outputs": [],
-						"execution_count": 34
+						"execution_count": 7
 					},
 					{
 						"cell_type": "code",
@@ -402,10 +421,60 @@
 							}
 						},
 						"source": [
-							""
+							"from pyspark.ml.classification import LinearSVC\r\n",
+							"from pyspark.ml.feature import VectorAssembler\r\n",
+							"\r\n",
+							"X = train_imputed\r\n",
+							"y = train_map.select('sample_id', 'has_alzheimer')\r\n",
+							"train_data = X.join(y, on='sample_id', how='inner')\r\n",
+							"features = train_data.columns[1:-1]\r\n",
+							"\r\n",
+							"assembler = VectorAssembler(inputCols=features, outputCol=\"cpg_sites\")\r\n",
+							"train_data = assembler.transform(train_data)\r\n",
+							"\r\n",
+							"lsvc = LinearSVC(featuresCol=\"cpg_sites\", labelCol=\"has_alzheimer\", maxIter=10)\r\n",
+							"model = lsvc.fit(train_data)"
 						],
 						"outputs": [],
-						"execution_count": null
+						"execution_count": 8
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"y_pred = model.transform(train_data)"
+						],
+						"outputs": [],
+						"execution_count": 9
+					},
+					{
+						"cell_type": "code",
+						"metadata": {
+							"jupyter": {
+								"source_hidden": false,
+								"outputs_hidden": false
+							},
+							"nteract": {
+								"transient": {
+									"deleting": false
+								}
+							}
+						},
+						"source": [
+							"y_pred.show()"
+						],
+						"outputs": [],
+						"execution_count": 10
 					}
 				]
 			},

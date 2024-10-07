@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "00f27cfe-91ec-439a-ba80-7e377215d4e8"
+				"spark.autotune.trackingId": "b651cb23-cf59-4647-a73d-81f409e9088d"
 			}
 		},
 		"metadata": {
@@ -106,14 +106,14 @@
 					"test_schema = StructType(cpg_site_field + test_samples)\r\n",
 					"\r\n",
 					"train_map_info = [StructField(\"row_num\", StringType(), False),\r\n",
-					"                  StructField(\"sample_id\", StringType(), False),\r\n",
+					"                  StructField(\"patient_id\", StringType(), False),\r\n",
 					"                  StructField(\"age\", IntegerType(), False), \r\n",
 					"                  StructField(\"gender\", StringType(), False),\r\n",
 					"                  StructField(\"sample_type\", StringType(), False),\r\n",
 					"                  StructField(\"disease\", StringType(), False)]\r\n",
 					"                  \r\n",
 					"test_map_info = [StructField(\"row_num\", IntegerType(), False),\r\n",
-					"                 StructField(\"sample_id\", StringType(), False),\r\n",
+					"                 StructField(\"patient_id\", StringType(), False),\r\n",
 					"                 StructField(\"gender\", StringType(), False)]\r\n",
 					"\r\n",
 					"train_map_schema = StructType(train_map_info)\r\n",
@@ -184,8 +184,8 @@
 					"test_map = test_map.drop(\"row_num\")\r\n",
 					"\r\n",
 					"# Reformat the sample_id to match the columns for our train and test data\r\n",
-					"train_map = train_map.withColumn(\"sample_id\", format_string(\"%05d\", monotonically_increasing_id()))\r\n",
-					"test_map = test_map.withColumn(\"sample_id\", format_string(\"%05d\", TRAIN_SAMPLE_SIZE + 1 + monotonically_increasing_id()))\r\n",
+					"train_map = train_map.withColumn(\"patient_id\", format_string(\"%05d\", monotonically_increasing_id()))\r\n",
+					"test_map = test_map.withColumn(\"patient_id\", format_string(\"%05d\", TRAIN_SAMPLE_SIZE + 1 + monotonically_increasing_id()))\r\n",
 					"\r\n",
 					"def has_alzheimer(disease):\r\n",
 					"    \"\"\"\r\n",
@@ -216,8 +216,8 @@
 					}
 				},
 				"source": [
-					"train = train.select(train.columns[:2000]).limit(500)\r\n",
-					"test = test.select(test.columns[:2000]).limit(500)"
+					"# train = train.select(train.columns[:2000]).limit(500)\r\n",
+					"# test = test.select(test.columns[:2000]).limit(500)"
 				],
 				"execution_count": 5
 			},
@@ -254,17 +254,17 @@
 					"unpivot_params = {\r\n",
 					"    'ids': 'cpg_site',\r\n",
 					"    'values': None,\r\n",
-					"    'variableColumnName': 'sample_id',\r\n",
+					"    'variableColumnName': 'patient_id',\r\n",
 					"    'valueColumnName': 'methyl_data'\r\n",
 					"}\r\n",
 					"\r\n",
 					"train_T = (train.unpivot(**unpivot_params)\r\n",
-					"                .groupby('sample_id')\r\n",
+					"                .groupby('patient_id')\r\n",
 					"                .pivot('cpg_site')\r\n",
 					"                .agg({'methyl_data': 'last'}))\r\n",
 					"\r\n",
 					"test_T = (test.unpivot(**unpivot_params)\r\n",
-					"              .groupby('sample_id')\r\n",
+					"              .groupby('patient_id')\r\n",
 					"              .pivot('cpg_site')\r\n",
 					"              .agg({'methyl_data': 'last'}))"
 				],
@@ -280,8 +280,64 @@
 					}
 				},
 				"source": [
-					"The transposition is complete, but there are a lot of missing values. A pretty common tactic is to impute them with the mean, and that's what we'll do. "
+					"The transposition is complete, but there are a lot of missing values. A pretty common tactic is to impute them with the mean, and that's what we'll do. However, it turns out that some columns present in the train set differ from those present in the test set. We'll do some quick preprocessing, and then, we'll impute what we can."
 				]
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"# Store the IDs\r\n",
+					"train_ids = train_T.select('patient_id')\r\n",
+					"test_ids = test_T.select('patient_id') \r\n",
+					"\r\n",
+					"train_T = train_T.drop('patient_id') \r\n",
+					"test_T = test_T.drop('patient_id') "
+				],
+				"execution_count": 7
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"import re \r\n",
+					"\r\n",
+					"def get_chromosomes(cpg_sites): \r\n",
+					"    pattern = 'ch'\r\n",
+					"    chromosomes = set()\r\n",
+					"\r\n",
+					"    for cpg_site in cpg_sites: \r\n",
+					"        if re.match(pattern, cpg_site):\r\n",
+					"            chromosomes.add(cpg_site)\r\n",
+					"\r\n",
+					"    return chromosomes\r\n",
+					"\r\n",
+					"train_cols = set(train_T.columns)  \r\n",
+					"chromosomes = get_chromosomes(train_cols)\r\n",
+					"\r\n",
+					"features = list(train_cols - chromosomes)"
+				],
+				"execution_count": 19
 			},
 			{
 				"cell_type": "code",
@@ -299,18 +355,13 @@
 				"source": [
 					"from pyspark.ml.feature import Imputer \r\n",
 					"\r\n",
-					"train_numeric_cols = train_T.columns[1:] # the first column is the ID column\r\n",
-					"test_numeric_cols = test_T.columns[1:] # the first column is the ID column\r\n",
-					"\r\n",
-					"imputer = Imputer(inputCols=train_numeric_cols, outputCols=train_numeric_cols)\r\n",
+					"imputer = Imputer(inputCols=features, outputCols=features)\r\n",
 					"model = imputer.fit(train_T)\r\n",
-					"train_imputed = model.transform(train_T)\r\n",
 					"\r\n",
-					"imputer = Imputer(inputCols=test_numeric_cols, outputCols=test_numeric_cols)\r\n",
-					"model = imputer.fit(test_T)\r\n",
+					"train_imputed = model.transform(train_T)\r\n",
 					"test_imputed = model.transform(test_T)"
 				],
-				"execution_count": 7
+				"execution_count": 23
 			},
 			{
 				"cell_type": "code",

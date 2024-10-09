@@ -17,7 +17,7 @@
 				"spark.dynamicAllocation.enabled": "false",
 				"spark.dynamicAllocation.minExecutors": "2",
 				"spark.dynamicAllocation.maxExecutors": "2",
-				"spark.autotune.trackingId": "b651cb23-cf59-4647-a73d-81f409e9088d"
+				"spark.autotune.trackingId": "67832554-4f23-40e5-a3dc-009b07c10353"
 			}
 		},
 		"metadata": {
@@ -62,7 +62,7 @@
 					"spark = SparkSession.builder.getOrCreate()\r\n",
 					"spark.conf.set(f\"fs.azure.account.key.{STORAGE_ACCOUNT}.blob.core.windows.net\", STORAGE_KEY)"
 				],
-				"execution_count": 1
+				"execution_count": 75
 			},
 			{
 				"cell_type": "markdown",
@@ -119,7 +119,7 @@
 					"train_map_schema = StructType(train_map_info)\r\n",
 					"test_map_schema = StructType(test_map_info)"
 				],
-				"execution_count": 2
+				"execution_count": 76
 			},
 			{
 				"cell_type": "code",
@@ -147,7 +147,7 @@
 					"test_map_path = f\"wasbs://{CONTAINER_NAME}@{STORAGE_ACCOUNT}.blob.core.windows.net/maps/testmap.csv\"\r\n",
 					"test_map = spark.read.csv(test_map_path, schema=test_map_schema, header=True)"
 				],
-				"execution_count": 3
+				"execution_count": 77
 			},
 			{
 				"cell_type": "markdown",
@@ -198,9 +198,10 @@
 					"    return 0 \r\n",
 					"\r\n",
 					"alzheimer_udf = udf(has_alzheimer, IntegerType()) # Must be done for pyspark to recognize the function\r\n",
-					"train_map = train_map.withColumn(\"has_alzheimer\", alzheimer_udf(train_map['disease']))"
+					"train_map = train_map.withColumn(\"has_alzheimer\", alzheimer_udf(train_map['disease']))\r\n",
+					"train_map = train_map['patient_id', 'has_alzheimer']"
 				],
-				"execution_count": 4
+				"execution_count": 78
 			},
 			{
 				"cell_type": "code",
@@ -216,10 +217,29 @@
 					}
 				},
 				"source": [
-					"# train = train.select(train.columns[:2000]).limit(500)\r\n",
-					"# test = test.select(test.columns[:2000]).limit(500)"
+					"train = train.select(train.columns).limit(5)\r\n",
+					"test = test.select(test.columns).limit(5)"
 				],
-				"execution_count": 5
+				"execution_count": 79
+			},
+			{
+				"cell_type": "code",
+				"metadata": {
+					"jupyter": {
+						"source_hidden": false,
+						"outputs_hidden": false
+					},
+					"nteract": {
+						"transient": {
+							"deleting": false
+						}
+					}
+				},
+				"source": [
+					"train = train.fillna(0)\r\n",
+					"test = test.fillna(0)"
+				],
+				"execution_count": 80
 			},
 			{
 				"cell_type": "markdown",
@@ -268,100 +288,7 @@
 					"              .pivot('cpg_site')\r\n",
 					"              .agg({'methyl_data': 'last'}))"
 				],
-				"execution_count": 6
-			},
-			{
-				"cell_type": "markdown",
-				"metadata": {
-					"nteract": {
-						"transient": {
-							"deleting": false
-						}
-					}
-				},
-				"source": [
-					"The transposition is complete, but there are a lot of missing values. A pretty common tactic is to impute them with the mean, and that's what we'll do. However, it turns out that some columns present in the train set differ from those present in the test set. We'll do some quick preprocessing, and then, we'll impute what we can."
-				]
-			},
-			{
-				"cell_type": "code",
-				"metadata": {
-					"jupyter": {
-						"source_hidden": false,
-						"outputs_hidden": false
-					},
-					"nteract": {
-						"transient": {
-							"deleting": false
-						}
-					}
-				},
-				"source": [
-					"# Store the IDs\r\n",
-					"train_ids = train_T.select('patient_id')\r\n",
-					"test_ids = test_T.select('patient_id') \r\n",
-					"\r\n",
-					"train_T = train_T.drop('patient_id') \r\n",
-					"test_T = test_T.drop('patient_id') "
-				],
-				"execution_count": 7
-			},
-			{
-				"cell_type": "code",
-				"metadata": {
-					"jupyter": {
-						"source_hidden": false,
-						"outputs_hidden": false
-					},
-					"nteract": {
-						"transient": {
-							"deleting": false
-						}
-					}
-				},
-				"source": [
-					"import re \r\n",
-					"\r\n",
-					"def get_chromosomes(cpg_sites): \r\n",
-					"    pattern = 'ch'\r\n",
-					"    chromosomes = set()\r\n",
-					"\r\n",
-					"    for cpg_site in cpg_sites: \r\n",
-					"        if re.match(pattern, cpg_site):\r\n",
-					"            chromosomes.add(cpg_site)\r\n",
-					"\r\n",
-					"    return chromosomes\r\n",
-					"\r\n",
-					"train_cols = set(train_T.columns)  \r\n",
-					"chromosomes = get_chromosomes(train_cols)\r\n",
-					"\r\n",
-					"features = list(train_cols - chromosomes)"
-				],
-				"execution_count": 19
-			},
-			{
-				"cell_type": "code",
-				"metadata": {
-					"jupyter": {
-						"source_hidden": false,
-						"outputs_hidden": false
-					},
-					"nteract": {
-						"transient": {
-							"deleting": false
-						}
-					}
-				},
-				"source": [
-					"from pyspark.ml.feature import Imputer \r\n",
-					"\r\n",
-					"imputer = Imputer(inputCols=features, outputCols=features)\r\n",
-					"model = imputer.fit(train_T)\r\n",
-					"\r\n",
-					"train_imputed = model.transform(train_T)\r\n",
-					"test_imputed = model.transform(test_T)"
-				],
-				"execution_count": 23
+				"execution_count": 81
 			},
 			{
 				"cell_type": "code",
@@ -380,18 +307,16 @@
 					"from pyspark.ml.classification import LinearSVC\r\n",
 					"from pyspark.ml.feature import VectorAssembler\r\n",
 					"\r\n",
-					"X = train_imputed\r\n",
-					"y = train_map.select('sample_id', 'has_alzheimer')\r\n",
-					"train_data = X.join(y, on='sample_id', how='inner')\r\n",
-					"features = train_data.columns[1:-1]\r\n",
+					"train_data = train_T.join(train_map, on='patient_id', how='left')\r\n",
+					"features = train_data[1:-1] # Ignore the IDs and Labels\r\n",
 					"\r\n",
 					"assembler = VectorAssembler(inputCols=features, outputCol=\"cpg_sites\")\r\n",
-					"train_data = assembler.transform(train_data)\r\n",
+					"train_va = assembler.transform(train_data)\r\n",
 					"\r\n",
 					"lsvc = LinearSVC(featuresCol=\"cpg_sites\", labelCol=\"has_alzheimer\", maxIter=10)\r\n",
-					"model = lsvc.fit(train_data)"
+					"model = lsvc.fit(train_va)"
 				],
-				"execution_count": 8
+				"execution_count": 84
 			},
 			{
 				"cell_type": "code",
